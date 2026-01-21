@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-service-config
+  namespace: feature-flags
+data:
+  PORT: "8001"
+  LOG_LEVEL: "info"

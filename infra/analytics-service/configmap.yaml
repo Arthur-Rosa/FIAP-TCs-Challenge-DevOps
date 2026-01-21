@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: analytics-service-config
+  namespace: feature-flags
+data:
+  PORT: "8005"
+  AWS_REGION: "us-east-1"
+  AWS_DYNAMODB_TABLE: "ToggleMasterAnalytics"
+  AWS_SQS_URL: "https://sqs.us-east-1.amazonaws.com/851725193065/evaluation-service-sqs"
+  LOG_LEVEL: "info"

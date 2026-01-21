@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evaluation-service
+  namespace: feature-flags
+  labels:
+    app: evaluation-service
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: evaluation-service
+  template:
+    metadata:
+      labels:
+        app: evaluation-service
+        version: v1
+    spec:
+      containers:
+      - name: evaluation-service
+        image: 851725193065.dkr.ecr.us-east-1.amazonaws.com/evaluation-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8004
+          name: http
+          protocol: TCP
+        env:
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: evaluation-service-config
+              key: PORT
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: evaluation-service-secret
+              key: REDIS_URL
+        - name: SERVICE_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: evaluation-service-secret
+              key: SERVICE_API_KEY
+        - name: FLAG_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: evaluation-service-config
+              key: FLAG_SERVICE_URL
+        - name: TARGETING_SERVICE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: evaluation-service-config
+              key: TARGETING_SERVICE_URL
+        - name: AWS_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: evaluation-service-config
+              key: AWS_REGION
+        - name: AWS_SQS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: evaluation-service-config
+              key: AWS_SQS_URL
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: evaluation-service-secret
+              key: AWS_ACCESS_KEY_ID
+              optional: true
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: evaluation-service-secret
+              key: AWS_SECRET_ACCESS_KEY
+              optional: true
+        resources:
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+          limits:
+            cpu: "1000m"
+            memory: "1Gi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8004
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8004
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      tolerations:
+      - key: service
+        operator: Equal
+        value: app
+        effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: service
+                operator: In
+                values:
+                - app
+      imagePullSecrets:
+      - name: ecr-registry-secret
+      # Em produção, usar IAM Role para ServiceAccount ao invés de credenciais
+      # serviceAccountName: evaluation-service-sa

@@ -1,0 +1,45 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: eksc-challenge-fiap
+  region: us-east-1
+  version: "1.30"
+
+availabilityZones: ["us-east-1a", "us-east-1b"]
+
+vpc:
+  nat:
+    gateway: Single
+
+managedNodeGroups:
+  - name: ng-app
+    instanceType: t3.medium
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 4
+    privateNetworking: true
+    labels:
+      role: app
+      service: app
+    taints:
+      - key: service
+        value: app
+        effect: NoSchedule
+
+  - name: ng-platform
+    instanceType: t3.medium
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 4
+    privateNetworking: true
+    labels:
+      role: platform
+      service: platform
+    taints:
+      - key: service
+        value: platform
+        effect: NoSchedule
+
+iam:
+  withOIDC: true

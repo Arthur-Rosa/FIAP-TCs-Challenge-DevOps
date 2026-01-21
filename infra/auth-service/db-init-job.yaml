@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: auth-db-init
+  namespace: feature-flags
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: postgres-client
+        image: postgres:15-alpine
+        env:
+        - name: PGHOST
+          value: "feature-flags-auth-db.cluster-c01kesg62uh4.us-east-1.rds.amazonaws.com"
+        - name: PGPORT
+          value: "5432"
+        - name: PGDATABASE
+          value: "auth_db"
+        - name: PGUSER
+          value: "auth_user"
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-init-auth
+              key: PGPASSWORD
+        command:
+        - /bin/sh
+        - -c
+        - |
+          psql -c "CREATE TABLE IF NOT EXISTS api_keys (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            key_hash VARCHAR(64) NOT NULL UNIQUE, 
+            is_active BOOLEAN DEFAULT true,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+          );"
+          echo "Tabela api_keys criada/verificada com sucesso!"
+      dnsPolicy: ClusterFirst

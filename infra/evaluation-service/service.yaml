@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: evaluation-service
+  namespace: feature-flags
+  labels:
+    app: evaluation-service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8004
+    targetPort: 8004
+    protocol: TCP
+    name: http
+  selector:
+    app: evaluation-service
+  sessionAffinity: None

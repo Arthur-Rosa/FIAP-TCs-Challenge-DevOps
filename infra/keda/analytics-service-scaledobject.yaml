@@ -1,0 +1,20 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: analytics-service-scaledobject
+  namespace: feature-flags
+spec:
+  scaleTargetRef:
+    name: analytics-service
+  minReplicaCount: 1
+  maxReplicaCount: 5
+  triggers:
+  - type: aws-sqs-queue
+    authenticationRef:
+      name: keda-trigger-auth-aws-credentials
+    metadata:
+      queueURL: https://sqs.us-east-1.amazonaws.com/851725193065/evaluation-service-sqs
+      queueLength: "1"  # Escalar quando houver 1 ou mais mensagens na fila (máxima sensibilidade)
+      awsRegion: us-east-1
+  cooldownPeriod: 30  # Esperar 30 segundos antes de reduzir réplicas (reduzido para escalar mais rápido)
+  pollingInterval: 10  # Verificar a fila a cada 10 segundos (mais frequente)

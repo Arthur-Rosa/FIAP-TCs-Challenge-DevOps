@@ -1,0 +1,188 @@
+version: '3.8'
+
+services:
+  # Banco de dados PostgreSQL para auth-service
+  postgres-auth:
+    image: postgres:15-alpine
+    container_name: postgres-auth
+    environment:
+      POSTGRES_USER: auth_user
+      POSTGRES_PASSWORD: auth_pass
+      POSTGRES_DB: auth_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-auth-data:/var/lib/postgresql/data
+      - ./auth-service/db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth_user -d auth_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Banco de dados PostgreSQL para flag-service e targeting-service
+  postgres-flags:
+    image: postgres:15-alpine
+    container_name: postgres-flags
+    environment:
+      POSTGRES_USER: flags_user
+      POSTGRES_PASSWORD: flags_pass
+      POSTGRES_DB: flags_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-flags-data:/var/lib/postgresql/data
+      - ./flag-service/db/init.sql:/docker-entrypoint-initdb.d/01-init-flags.sql
+      - ./targeting-service/db/init.sql:/docker-entrypoint-initdb.d/02-init-targeting.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flags_user -d flags_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis para evaluation-service
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # DynamoDB Local para analytics-service
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: dynamodb-local
+    ports:
+      - "8000:8000"
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-port", "8000"]
+  
+  # Serviço de Autenticação (Go)
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    ports:
+      - "8001:8001"
+    environment:
+      PORT: "8001"
+      DATABASE_URL: "postgres://auth_user:auth_pass@postgres-auth:5432/auth_db?sslmode=disable"
+      MASTER_KEY: "master-key-change-in-production"
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Serviço de Flags (Python)
+  flag-service:
+    build:
+      context: ./flag-service
+      dockerfile: Dockerfile
+    container_name: flag-service
+    ports:
+      - "8002:8002"
+    environment:
+      PORT: "8002"
+      DATABASE_URL: "postgresql://flags_user:flags_pass@postgres-flags:5432/flags_db"
+      AUTH_SERVICE_URL: "http://auth-service:8001"
+    depends_on:
+      postgres-flags:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Serviço de Targeting (Python)
+  targeting-service:
+    build:
+      context: ./targeting-service
+      dockerfile: Dockerfile
+    container_name: targeting-service
+    ports:
+      - "8003:8003"
+    environment:
+      PORT: "8003"
+      DATABASE_URL: "postgresql://flags_user:flags_pass@postgres-flags:5432/flags_db"
+      AUTH_SERVICE_URL: "http://auth-service:8001"
+    depends_on:
+      postgres-flags:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8003/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Serviço de Evaluation (Go)
+  evaluation-service:
+    build:
+      context: ./evaluation-service
+      dockerfile: Dockerfile
+    container_name: evaluation-service
+    ports:
+      - "8004:8004"
+    environment:
+      PORT: "8004"
+      REDIS_URL: "redis://redis:6379/0"
+      FLAG_SERVICE_URL: "http://flag-service:8002"
+      TARGETING_SERVICE_URL: "http://targeting-service:8003"
+      SERVICE_API_KEY: "tm_key_19f195e495c38c759bfd6fea3051dc553d74c431371a042dd3f13e6933505ab1"
+      AWS_SQS_URL: ""
+      AWS_REGION: "us-east-1"
+    depends_on:
+      redis:
+        condition: service_healthy
+      flag-service:
+        condition: service_healthy
+      targeting-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8004/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  analytics-service:
+    build:
+      context: ./analytics-service
+      dockerfile: Dockerfile
+    container_name: analytics-service
+    ports:
+      - "8005:8005"
+    environment:
+      PORT: "8005"
+      AWS_REGION: "us-east-1"
+      AWS_ENDPOINT_URL: "http://dynamodb-local:8000"
+      AWS_DYNAMODB_TABLE: "analytics_events"
+      AWS_SQS_URL: ""
+      AWS_ACCESS_KEY_ID: "fake"
+      AWS_SECRET_ACCESS_KEY: "fake"
+    depends_on:
+      - dynamodb-local
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8005/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  postgres-auth-data:
+  postgres-flags-data:
+  redis-data:
+

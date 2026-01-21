@@ -1,0 +1,56 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: targeting-db-init
+  namespace: feature-flags
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: postgres-client
+        image: postgres:15-alpine
+        env:
+        - name: PGHOST
+          value: "feature-flags-targeting-db.cluster-c01kesg62uh4.us-east-1.rds.amazonaws.com"
+        - name: PGPORT
+          value: "5432"
+        - name: PGDATABASE
+          value: "targeting_db"
+        - name: PGUSER
+          value: "targeting_user"
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-init-targeting
+              key: PGPASSWORD
+        command:
+        - /bin/sh
+        - -c
+        - |
+          psql -c "CREATE TABLE IF NOT EXISTS targeting_rules (
+            id SERIAL PRIMARY KEY,
+            flag_name VARCHAR(100) UNIQUE NOT NULL,
+            is_enabled BOOLEAN NOT NULL DEFAULT true,
+            rules JSONB NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+          );"
+          
+          psql -c "CREATE OR REPLACE FUNCTION trigger_set_timestamp()
+          RETURNS TRIGGER AS \$\$
+          BEGIN
+            NEW.updated_at = NOW();
+            RETURN NEW;
+          END;
+          \$\$ LANGUAGE plpgsql;"
+          
+          psql -c "DROP TRIGGER IF EXISTS set_timestamp ON targeting_rules;"
+          
+          psql -c "CREATE TRIGGER set_timestamp
+          BEFORE UPDATE ON targeting_rules
+          FOR EACH ROW
+          EXECUTE PROCEDURE trigger_set_timestamp();"
+          
+          echo "Tabelas e triggers do targeting-service criados/verificados com sucesso!"
+      dnsPolicy: ClusterFirst

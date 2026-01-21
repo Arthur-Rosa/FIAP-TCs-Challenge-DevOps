@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: analytics-service-ingress
+  namespace: feature-flags
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - analytics-api.arthurrosa.blog
+    secretName: analytics-service-tls
+  rules:
+  - host: analytics-api.arthurrosa.blog
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: analytics-service
+            port:
+              number: 8005

@@ -1,0 +1,25 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: flag-service-ingress
+  namespace: feature-flags
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:  
+    - flags-api.arthurrosa.blog
+    secretName: flag-service-tls
+  rules:
+  - host: flags-api.arthurrosa.blog 
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: flag-service
+            port:
+              number: 8002

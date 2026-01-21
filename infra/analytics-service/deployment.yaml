@@ -1,0 +1,101 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: feature-flags
+  labels:
+    app: analytics-service
+    version: v1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analytics-service
+  template:
+    metadata:
+      labels:
+        app: analytics-service
+        version: v1
+    spec:
+      containers:
+      - name: analytics-service
+        image: 851725193065.dkr.ecr.us-east-1.amazonaws.com/analytics-service:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8005
+          name: http
+          protocol: TCP
+        env:
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: analytics-service-config
+              key: PORT
+        - name: AWS_REGION
+          valueFrom:
+            configMapKeyRef:
+              name: analytics-service-config
+              key: AWS_REGION
+        - name: AWS_DYNAMODB_TABLE
+          valueFrom:
+            configMapKeyRef:
+              name: analytics-service-config
+              key: AWS_DYNAMODB_TABLE
+        - name: AWS_SQS_URL
+          valueFrom:
+            configMapKeyRef:
+              name: analytics-service-config
+              key: AWS_SQS_URL
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: analytics-service-secret
+              key: AWS_ACCESS_KEY_ID
+              optional: true
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: analytics-service-secret
+              key: AWS_SECRET_ACCESS_KEY
+              optional: true
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8005
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8005
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+      tolerations:
+      - key: service
+        operator: Equal
+        value: app
+        effect: NoSchedule
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: service
+                operator: In
+                values:
+                - app
+      imagePullSecrets:
+      - name: ecr-registry-secret
+      # Em produção, usar IAM Role para ServiceAccount ao invés de credenciais
+      # serviceAccountName: analytics-service-sa
