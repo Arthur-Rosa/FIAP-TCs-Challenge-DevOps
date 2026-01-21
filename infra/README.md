@@ -23,8 +23,8 @@ imagens do ECR) ( Requests and Limits, Readiness and Liveness )
 -> ScaleObject que vai monitorar o SQS e escalar de acordo
 
 
-Access: AKIA4MTWHB5UUCFXYHSR
-Secret: 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
+Access: 
+Secret: 
 
 
 851725193065.dkr.ecr.us-east-1.amazonaws.com/analytics-service
