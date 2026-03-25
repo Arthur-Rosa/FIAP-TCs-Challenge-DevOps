@@ -107,7 +107,7 @@ jobs:
           category: 'sca-auth-service'
 
       - name: SAST - Install gosec
-        run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+        run: go install github.com/securego/gosec/v2/cmd/gosec@v2.22.0
 
       - name: SAST - Run gosec
         working-directory: ${{ env.SERVICE_DIR }}

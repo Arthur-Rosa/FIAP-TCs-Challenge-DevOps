@@ -7,9 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/sqs"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/go-redis/redis/v8"
 	"github.com/joho/godotenv"
 )
@@ -20,7 +19,7 @@ var ctx = context.Background()
 // App struct para injeção de dependência
 type App struct {
 	RedisClient         *redis.Client
-	SqsSvc              *sqs.SQS
+	SqsSvc              *sqs.Client
 	SqsQueueURL         string
 	HttpClient          *http.Client
 	FlagServiceURL      string
@@ -74,14 +73,14 @@ func main() {
 	}
 	log.Println("Conectado ao Redis com sucesso!")
 
-	// Cliente SQS (AWS SDK)
-	var sqsSvc *sqs.SQS
+	// Cliente SQS (AWS SDK v2)
+	var sqsSvc *sqs.Client
 	if sqsQueueURL != "" {
-		sess, err := session.NewSession(&aws.Config{Region: aws.String(awsRegion)})
+		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(awsRegion))
 		if err != nil {
-			log.Fatalf("Não foi possível criar sessão AWS: %v", err)
+			log.Fatalf("Não foi possível carregar configuração AWS: %v", err)
 		}
-		sqsSvc = sqs.New(sess)
+		sqsSvc = sqs.NewFromConfig(cfg)
 		log.Println("Cliente SQS inicializado com sucesso.")
 	}
 
