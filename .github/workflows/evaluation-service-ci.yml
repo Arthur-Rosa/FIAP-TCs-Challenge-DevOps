@@ -15,7 +15,7 @@ on:
 env:
   SERVICE_NAME: evaluation-service
   SERVICE_DIR: services/evaluation-service
-  GO_VERSION: '1.21'
+  GO_VERSION: '1.22'
   ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
 
 permissions:
