@@ -110,8 +110,12 @@ jobs:
       - name: SAST - Run gosec
         working-directory: ${{ env.SERVICE_DIR }}
         run: |
-          gosec -fmt sarif -out ../../gosec-results.sarif ./... || true
-          gosec -severity critical -fmt text ./... 2>&1 | tee gosec-output.txt
+          gosec -fmt sarif -out "$GITHUB_WORKSPACE/gosec-results.sarif" ./... || true
+          # Garante que o arquivo SARIF exista mesmo se o gosec falhar
+          if [ ! -f "$GITHUB_WORKSPACE/gosec-results.sarif" ]; then
+            echo '{"version":"2.1.0","runs":[]}' > "$GITHUB_WORKSPACE/gosec-results.sarif"
+          fi
+          gosec -severity critical -fmt text ./... 2>&1 | tee gosec-output.txt || true
           if grep -q "Issues (Critical)" gosec-output.txt; then
             echo "CRITICAL security issues found by gosec. Failing pipeline."
             exit 1
