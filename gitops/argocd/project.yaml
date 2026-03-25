@@ -1,0 +1,50 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: feature-flags
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Feature Flag System - FIAP Challenge
+
+  sourceRepos:
+    - https://github.com/Arthur-Rosa/FIAP-TCs-Challenge-DevOps
+
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: feature-flags
+
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+
+  namespaceResourceWhitelist:
+    - group: apps
+      kind: Deployment
+    - group: ""
+      kind: Service
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Secret
+    - group: ""
+      kind: ServiceAccount
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+    - group: keda.sh
+      kind: ScaledObject
+
+  roles:
+    - name: ci-deployer
+      description: CI pipeline role with deployment permissions
+      policies:
+        - p, proj:feature-flags:ci-deployer, applications, sync, feature-flags/*, allow
+        - p, proj:feature-flags:ci-deployer, applications, get, feature-flags/*, allow
+      jwtTokens: []
+
+  syncWindows: []

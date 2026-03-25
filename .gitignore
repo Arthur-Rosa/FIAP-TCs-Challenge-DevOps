@@ -1,0 +1,15 @@
+# Terraform
+infra/terraform/terraform.tfvars
+infra/terraform/.terraform/
+infra/terraform/.terraform.lock.hcl
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.backup
+infra/terraform/crash.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
