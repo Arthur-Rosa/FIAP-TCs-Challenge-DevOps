@@ -110,8 +110,7 @@ jobs:
       - name: SAST - Run gosec
         working-directory: ${{ env.SERVICE_DIR }}
         run: |
-          gosec -fmt sarif -out gosec-results.sarif ./... || true
-          # Fail on CRITICAL findings
+          gosec -fmt sarif -out ../../gosec-results.sarif ./... || true
           gosec -severity critical -fmt text ./... 2>&1 | tee gosec-output.txt
           if grep -q "Issues (Critical)" gosec-output.txt; then
             echo "CRITICAL security issues found by gosec. Failing pipeline."
@@ -122,7 +121,7 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
-          sarif_file: ${{ env.SERVICE_DIR }}/gosec-results.sarif
+          sarif_file: gosec-results.sarif
           category: 'sast-evaluation-service'
 
   docker-build-push:
