@@ -1,0 +1,92 @@
+## Datadog Agent values
+## APM, Service Map, Distributed Tracing
+
+datadog:
+  apiKeyExistingSecret: monitoring-secrets
+  apiKeyExistingSecretKey: DD_API_KEY
+  site: us5.datadoghq.com
+
+  # APM — Distributed Tracing
+  apm:
+    portEnabled: true
+    port: 8126
+
+  # Coleta de logs dos containers
+  logs:
+    enabled: true
+    containerCollectAll: true
+    containerCollectUsingFiles: true
+
+  # Process monitoring
+  processAgent:
+    enabled: true
+    processCollection: true
+
+  # Kubernetes events
+  collectEvents: true
+
+  # Cluster Agent para correlação de métricas K8s
+  clusterAgent:
+    enabled: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  # Labels customizadas para os pods
+  podLabelsAsTags:
+    app: service
+    version: version
+    app.kubernetes.io/part-of: team
+
+  # Annotations para métricas customizadas
+  podAnnotationsAsTags:
+    prometheus.io/scrape: prometheus_scrape
+
+  # Tags globais
+  tags:
+    - env:production
+    - project:feature-flags
+    - cluster:eksc-challenge-fiap
+
+  # Kubernetes state metrics
+  kubeStateMetricsEnabled: true
+  kubeStateMetricsCore:
+    enabled: true
+
+  # OTLP ingest (recebe traces dos serviços via OTLP, complementar ao OTel Collector)
+  otlp:
+    receiver:
+      protocols:
+        grpc:
+          enabled: false  # Usar OTel Collector como hub principal
+        http:
+          enabled: false
+
+agents:
+  image:
+    tag: "7"
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Tolerations para rodar em todos os nodes
+  tolerations:
+    - operator: Exists
+
+  rbac:
+    create: true
+
+clusterAgent:
+  enabled: true
+  metricsProvider:
+    enabled: true

@@ -1,0 +1,138 @@
+## OpenTelemetry Collector values
+## Hub central: recebe traces/metrics/logs dos serviços e roteia para backends
+
+mode: deployment
+
+replicaCount: 1
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: "0.102.0"
+
+serviceAccount:
+  create: true
+  name: otel-collector
+
+# Portas expostas
+ports:
+  otlp:
+    enabled: true
+    containerPort: 4317
+    servicePort: 4317
+    protocol: TCP
+  otlp-http:
+    enabled: true
+    containerPort: 4318
+    servicePort: 4318
+    protocol: TCP
+  prometheus:
+    enabled: true
+    containerPort: 8889
+    servicePort: 8889
+    protocol: TCP
+
+# Credenciais Datadog via secret
+env:
+  - name: DD_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: monitoring-secrets
+        key: DD_API_KEY
+  - name: DD_SITE
+    valueFrom:
+      secretKeyRef:
+        name: monitoring-secrets
+        key: DD_SITE
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Configuração completa do OTel Collector
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+  processors:
+    memory_limiter:
+      check_interval: 1s
+      limit_mib: 400
+      spike_limit_mib: 128
+    batch:
+      timeout: 1s
+      send_batch_size: 1024
+    # Adiciona atributos de resource ao resource detection
+    resourcedetection:
+      detectors: [env, system, k8snode]
+      timeout: 5s
+      override: false
+
+  exporters:
+    # Exporta métricas como endpoint Prometheus (Prometheus vai scrape)
+    prometheus:
+      endpoint: "0.0.0.0:8889"
+      namespace: otel
+      send_timestamps: true
+      metric_expiration: 180m
+
+    # Exporta logs para Loki
+    loki:
+      endpoint: "http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push"
+      default_labels_enabled:
+        exporter: false
+        job: true
+        instance: true
+        level: true
+
+    # Exporta traces, métricas e logs para Datadog APM
+    datadog:
+      api:
+        site: "us5.datadoghq.com"
+        key: "${DD_API_KEY}"
+      traces:
+        span_name_as_resource_name: true
+        compute_stats_by_span_kind: true
+      metrics:
+        histograms:
+          mode: distributions
+      logs:
+        use_compression: true
+
+    # Debug local (desabilitar em produção se necessário)
+    debug:
+      verbosity: basic
+
+  service:
+    pipelines:
+      # Traces: OTLP → Datadog APM
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, resourcedetection, batch]
+        exporters: [datadog]
+
+      # Métricas: OTLP → Prometheus endpoint + Datadog
+      metrics:
+        receivers: [otlp]
+        processors: [memory_limiter, resourcedetection, batch]
+        exporters: [prometheus, datadog]
+
+      # Logs: OTLP → Loki + Datadog
+      logs:
+        receivers: [otlp]
+        processors: [memory_limiter, resourcedetection, batch]
+        exporters: [loki, datadog]
+
+    telemetry:
+      logs:
+        level: info
+      metrics:
+        address: 0.0.0.0:8888

@@ -11,12 +11,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/go-redis/redis/v8"
 	"github.com/joho/godotenv"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
-// Contexto global para o Redis
 var ctx = context.Background()
 
-// App struct para injeção de dependência
 type App struct {
 	RedisClient         *redis.Client
 	SqsSvc              *sqs.Client
@@ -27,9 +26,20 @@ type App struct {
 }
 
 func main() {
-	_ = godotenv.Load() // Carrega .env para dev local
+	_ = godotenv.Load()
 
-	// --- Configuração ---
+	// Inicializa OpenTelemetry (traces → OTel Collector → Datadog)
+	shutdownTelemetry, err := initTelemetry(ctx, "evaluation-service")
+	if err != nil {
+		log.Printf("Aviso: falha ao inicializar telemetria OTel: %v", err)
+	} else {
+		defer func() {
+			if err := shutdownTelemetry(ctx); err != nil {
+				log.Printf("Erro ao encerrar telemetria: %v", err)
+			}
+		}()
+	}
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8004"
@@ -50,7 +60,6 @@ func main() {
 		log.Fatal("TARGETING_SERVICE_URL deve ser definida")
 	}
 
-	// SQS é opcional no dev local, mas obrigatório em prod
 	sqsQueueURL := os.Getenv("AWS_SQS_URL")
 	awsRegion := os.Getenv("AWS_REGION")
 	if sqsQueueURL == "" {
@@ -60,9 +69,6 @@ func main() {
 		log.Fatal("AWS_REGION deve ser definida para usar SQS")
 	}
 
-	// --- Inicializa Clientes ---
-	
-	// Cliente Redis
 	opt, err := redis.ParseURL(redisURL)
 	if err != nil {
 		log.Fatalf("Não foi possível parsear a URL do Redis: %v", err)
@@ -73,7 +79,6 @@ func main() {
 	}
 	log.Println("Conectado ao Redis com sucesso!")
 
-	// Cliente SQS (AWS SDK v2)
 	var sqsSvc *sqs.Client
 	if sqsQueueURL != "" {
 		cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(awsRegion))
@@ -84,12 +89,12 @@ func main() {
 		log.Println("Cliente SQS inicializado com sucesso.")
 	}
 
-	// Cliente HTTP (com timeout)
+	// Cliente HTTP com propagação de contexto OTel (W3C TraceContext)
 	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
+		Timeout:   5 * time.Second,
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
 	}
 
-	// Cria a instância da App
 	app := &App{
 		RedisClient:         rdb,
 		SqsSvc:              sqsSvc,
@@ -99,13 +104,17 @@ func main() {
 		TargetingServiceURL: targetingSvcURL,
 	}
 
-	// --- Rotas ---
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", app.healthHandler)
 	mux.HandleFunc("/evaluate", app.evaluationHandler)
 
+	// Instrumentação HTTP — gera traces e métricas automaticamente
+	handler := otelhttp.NewHandler(mux, "evaluation-service",
+		otelhttp.WithMessageEvents(otelhttp.ReadEvents, otelhttp.WriteEvents),
+	)
+
 	log.Printf("Serviço de Avaliação (Go) rodando na porta %s", port)
-	if err := http.ListenAndServe(":"+port, mux); err != nil {
+	if err := http.ListenAndServe(":"+port, handler); err != nil {
 		log.Fatal(err)
 	}
 }

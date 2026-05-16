@@ -31,6 +31,8 @@ spec:
               containerPort: 8002
               protocol: TCP
           env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "otel-collector.monitoring.svc.cluster.local:4317"
             - name: PORT
               valueFrom:
                 configMapKeyRef:

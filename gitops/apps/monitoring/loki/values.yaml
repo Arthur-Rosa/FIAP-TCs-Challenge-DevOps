@@ -1,0 +1,146 @@
+## loki-stack values
+## Loki (armazenamento de logs) + Promtail (agente de coleta)
+
+loki:
+  enabled: true
+  isDefault: false
+  url: http://{{(include "loki.serviceName" .)}}:{{ .Values.loki.service.port }}
+
+  persistence:
+    enabled: true
+    size: 10Gi
+
+  config:
+    auth_enabled: false
+    ingester:
+      chunk_idle_period: 3m
+      chunk_block_size: 262144
+      chunk_retain_period: 1m
+      max_transfer_retries: 0
+      lifecycler:
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+    limits_config:
+      enforce_metric_name: false
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+    schema_config:
+      configs:
+        - from: 2020-10-24
+          store: boltdb-shipper
+          object_store: filesystem
+          schema: v11
+          index:
+            prefix: index_
+            period: 24h
+    server:
+      http_listen_port: 3100
+    storage_config:
+      boltdb_shipper:
+        active_index_directory: /data/loki/index
+        cache_location: /data/loki/index_cache
+        shared_store: filesystem
+      filesystem:
+        directory: /data/loki/chunks
+    chunk_store_config:
+      max_look_back_period: 0s
+    table_manager:
+      retention_deletes_enabled: false
+      retention_period: 0s
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Promtail — agente que coleta logs de todos os pods do cluster
+promtail:
+  enabled: true
+
+  config:
+    logLevel: info
+    serverPort: 3101
+    clients:
+      - url: http://loki.monitoring.svc.cluster.local:3100/loki/api/v1/push
+
+    snippets:
+      pipelineStages:
+        - docker: {}
+        - match:
+            selector: '{namespace="feature-flags"}'
+            stages:
+              - json:
+                  expressions:
+                    level: level
+                    msg: msg
+              - labels:
+                  level:
+              - output:
+                  source: msg
+
+  # Coleta logs de todos os namespaces
+  extraScrapeConfigs:
+    - job_name: kubernetes-pods
+      kubernetes_sd_configs:
+        - role: pod
+      pipeline_stages:
+        - docker: {}
+      relabel_configs:
+        - source_labels:
+            - __meta_kubernetes_pod_controller_name
+          regex: ([0-9a-z-.]+?)(-[0-9a-f]{8,10})?
+          action: replace
+          target_label: __tmp_controller_name
+        - source_labels:
+            - __meta_kubernetes_pod_label_app_kubernetes_io_name
+            - __meta_kubernetes_pod_label_app
+            - __tmp_controller_name
+            - __meta_kubernetes_pod_name
+          regex: ^;*([^;]+)(;.*)?$
+          action: replace
+          target_label: app
+        - source_labels:
+            - __meta_kubernetes_pod_node_name
+          action: replace
+          target_label: node_name
+        - source_labels:
+            - __meta_kubernetes_namespace
+          action: replace
+          target_label: namespace
+        - source_labels:
+            - namespace
+            - app
+          separator: /
+          action: replace
+          replacement: $1
+          target_label: job
+        - source_labels:
+            - __meta_kubernetes_pod_name
+          action: replace
+          target_label: pod
+        - source_labels:
+            - __meta_kubernetes_pod_container_name
+          action: replace
+          target_label: container
+        - replacement: /var/log/pods/*$1/*.log
+          separator: /
+          source_labels:
+            - __meta_kubernetes_pod_uid
+            - __meta_kubernetes_pod_container_name
+          target_label: __path__
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+grafana:
+  enabled: false  # Grafana is managed by kube-prometheus-stack

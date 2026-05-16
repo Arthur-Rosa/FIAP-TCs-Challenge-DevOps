@@ -11,5 +11,8 @@ infra/terraform/crash.log
 .env.*
 !.env.example
 
+# Credenciais locais
+.credentials.local
+
 # OS
 .DS_Store

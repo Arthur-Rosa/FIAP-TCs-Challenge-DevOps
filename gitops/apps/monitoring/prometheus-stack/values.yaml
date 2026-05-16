@@ -1,0 +1,244 @@
+## kube-prometheus-stack values
+## Prometheus + Grafana + AlertManager
+
+prometheus:
+  prometheusSpec:
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    retention: 15d
+    enableRemoteWriteReceiver: true
+    additionalScrapeConfigs:
+      # Scrape OTel Collector metrics endpoint
+      - job_name: otel-collector
+        static_configs:
+          - targets:
+              - otel-collector.monitoring.svc.cluster.local:8889
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+grafana:
+  enabled: true
+  adminPassword: ""  # Set via monitoring-secrets (GRAFANA_ADMIN_PASSWORD)
+
+  envValueFrom:
+    DISCORD_WEBHOOK_URL:
+      secretKeyRef:
+        name: monitoring-secrets
+        key: DISCORD_WEBHOOK_URL
+    PAGERDUTY_INTEGRATION_KEY:
+      secretKeyRef:
+        name: monitoring-secrets
+        key: PAGERDUTY_INTEGRATION_KEY
+    GF_SECURITY_ADMIN_PASSWORD:
+      secretKeyRef:
+        name: monitoring-secrets
+        key: GRAFANA_ADMIN_PASSWORD
+
+  grafana.ini:
+    unified_alerting:
+      enabled: true
+    alerting:
+      enabled: false
+    server:
+      root_url: "%(protocol)s://%(domain)s/"
+
+  # Loki datasource (Prometheus is auto-configured by the chart)
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: http://loki.monitoring.svc.cluster.local:3100
+      access: proxy
+      uid: loki
+      isDefault: false
+      jsonData:
+        maxLines: 1000
+
+  # Dashboard sidecar — picks up ConfigMaps with label grafana_dashboard=1
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: monitoring
+    datasources:
+      enabled: true
+
+  # Grafana Unified Alerting — provisioning via values
+  alerting:
+    contactpoints.yaml:
+      apiVersion: 1
+      contactPoints:
+        - orgId: 1
+          name: discord
+          receivers:
+            - uid: discord-receiver
+              type: discord
+              settings:
+                url: "${DISCORD_WEBHOOK_URL}"
+                message: |
+                  **[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:fire:{{ else }}:white_check_mark:{{ end }}] {{ .CommonLabels.alertname }}**
+                  {{ range .Alerts }}
+                  **Serviço:** {{ .Labels.service_name }}
+                  **Severidade:** {{ .Labels.severity }}
+                  **Resumo:** {{ .Annotations.summary }}
+                  **Detalhes:** {{ .Annotations.description }}
+                  {{ end }}
+              disableResolveMessage: false
+
+        - orgId: 1
+          name: pagerduty
+          receivers:
+            - uid: pagerduty-receiver
+              type: pagerduty
+              settings:
+                integrationKey: "${PAGERDUTY_INTEGRATION_KEY}"
+                severity: critical
+                class: feature-flags-alert
+                component: togglemaster
+                group: feature-flags
+              disableResolveMessage: false
+
+    policies.yaml:
+      apiVersion: 1
+      policies:
+        - orgId: 1
+          receiver: discord
+          continue: true
+          routes:
+            - receiver: pagerduty
+              matchers:
+                - severity = critical
+              continue: false
+
+    rules.yaml:
+      apiVersion: 1
+      groups:
+        - orgId: 1
+          name: ToggleMaster - Service Alerts
+          folder: ToggleMaster
+          interval: 1m
+          rules:
+            - uid: auth-5xx-high-rate
+              title: "High 5xx Error Rate - auth-service"
+              condition: B
+              data:
+                - refId: A
+                  relativeTimeRange:
+                    from: 300
+                    to: 0
+                  datasourceUid: prometheus
+                  model:
+                    expr: |
+                      sum(rate(http_server_request_duration_seconds_count{http_response_status_code=~"5..",service_name="auth-service"}[5m]))
+                      /
+                      sum(rate(http_server_request_duration_seconds_count{service_name="auth-service"}[5m]))
+                    intervalMs: 1000
+                    maxDataPoints: 43200
+                    refId: A
+                - refId: B
+                  datasourceUid: "-100"
+                  model:
+                    conditions:
+                      - evaluator:
+                          params:
+                            - 0.05
+                          type: gt
+                        operator:
+                          type: and
+                        query:
+                          params:
+                            - A
+                        reducer:
+                          type: last
+                    type: classic_conditions
+                    refId: B
+              for: 2m
+              labels:
+                severity: critical
+                service: auth-service
+              annotations:
+                summary: "Taxa de erros 5xx elevada no auth-service"
+                description: "A taxa de erros HTTP 5xx está acima de 5% por mais de 2 minutos. Investigar imediatamente."
+              isPaused: false
+
+            - uid: evaluation-5xx-high-rate
+              title: "High 5xx Error Rate - evaluation-service"
+              condition: B
+              data:
+                - refId: A
+                  relativeTimeRange:
+                    from: 300
+                    to: 0
+                  datasourceUid: prometheus
+                  model:
+                    expr: |
+                      sum(rate(http_server_request_duration_seconds_count{http_response_status_code=~"5..",service_name="evaluation-service"}[5m]))
+                      /
+                      sum(rate(http_server_request_duration_seconds_count{service_name="evaluation-service"}[5m]))
+                    intervalMs: 1000
+                    maxDataPoints: 43200
+                    refId: A
+                - refId: B
+                  datasourceUid: "-100"
+                  model:
+                    conditions:
+                      - evaluator:
+                          params:
+                            - 0.05
+                          type: gt
+                        operator:
+                          type: and
+                        query:
+                          params:
+                            - A
+                        reducer:
+                          type: last
+                    type: classic_conditions
+                    refId: B
+              for: 2m
+              labels:
+                severity: critical
+                service: evaluation-service
+              annotations:
+                summary: "Taxa de erros 5xx elevada no evaluation-service"
+                description: "A taxa de erros HTTP 5xx está acima de 5% por mais de 2 minutos."
+              isPaused: false
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Node exporter — metrics de CPU/memória dos nodes
+nodeExporter:
+  enabled: true
+
+# kube-state-metrics — metrics de pods/deployments
+kubeStateMetrics:
+  enabled: true
+
+# Prometheus Operator CRDs
+prometheusOperator:
+  enabled: true

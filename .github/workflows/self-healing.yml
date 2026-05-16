@@ -1,0 +1,155 @@
+name: Self-Healing - Auto Restart Service
+
+# Disparado via webhook do Grafana (repository_dispatch)
+# O Grafana envia um POST para a GitHub API quando um alerta dispara:
+#   URL: https://api.github.com/repos/Arthur-Rosa/FIAP-TCs-Challenge-DevOps/dispatches
+#   Headers: Authorization: Bearer <GITHUB_PAT>, Content-Type: application/json
+#   Body: {"event_type": "self-heal-trigger", "client_payload": {"service": "auth-service", "namespace": "feature-flags"}}
+on:
+  repository_dispatch:
+    types: [self-heal-trigger]
+
+  # Permite disparo manual para testes
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Nome do deployment a reiniciar'
+        required: true
+        default: 'auth-service'
+        type: choice
+        options:
+          - auth-service
+          - evaluation-service
+          - flag-service
+          - targeting-service
+          - analytics-service
+      namespace:
+        description: 'Namespace Kubernetes'
+        required: true
+        default: 'feature-flags'
+
+env:
+  AWS_REGION: us-east-1
+  EKS_CLUSTER_NAME: eksc-challenge-fiap
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  self-heal:
+    name: Restart Deployment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determinar serviço alvo
+        id: target
+        run: |
+          # Usa payload do webhook ou input manual
+          SERVICE="${{ github.event.client_payload.service || github.event.inputs.service }}"
+          NAMESPACE="${{ github.event.client_payload.namespace || github.event.inputs.namespace }}"
+          NAMESPACE="${NAMESPACE:-feature-flags}"
+
+          echo "service=${SERVICE}" >> $GITHUB_OUTPUT
+          echo "namespace=${NAMESPACE}" >> $GITHUB_OUTPUT
+          echo "timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
+          echo "🔧 Self-Healing iniciado"
+          echo "   Serviço  : ${SERVICE}"
+          echo "   Namespace: ${NAMESPACE}"
+          echo "   Trigger  : ${{ github.event_name }}"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig (EKS)
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER_NAME }}
+
+      - name: Verificar estado do deployment antes do restart
+        run: |
+          echo "📊 Estado atual do deployment:"
+          kubectl get deployment ${{ steps.target.outputs.service }} \
+            -n ${{ steps.target.outputs.namespace }} \
+            -o wide || echo "Deployment não encontrado"
+
+          echo ""
+          echo "🔍 Pods atuais:"
+          kubectl get pods \
+            -n ${{ steps.target.outputs.namespace }} \
+            -l app=${{ steps.target.outputs.service }} \
+            --show-labels
+
+      - name: Executar rollout restart (Self-Healing)
+        id: restart
+        run: |
+          echo "♻️  Executando rollout restart em ${{ steps.target.outputs.service }}..."
+          kubectl rollout restart deployment/${{ steps.target.outputs.service }} \
+            -n ${{ steps.target.outputs.namespace }}
+
+          echo "⏳ Aguardando rollout completar (timeout: 3m)..."
+          kubectl rollout status deployment/${{ steps.target.outputs.service }} \
+            -n ${{ steps.target.outputs.namespace }} \
+            --timeout=3m
+
+          echo "restart_status=success" >> $GITHUB_OUTPUT
+
+      - name: Verificar estado após restart
+        if: always()
+        run: |
+          echo "📊 Estado após restart:"
+          kubectl get pods \
+            -n ${{ steps.target.outputs.namespace }} \
+            -l app=${{ steps.target.outputs.service }} \
+            -o wide
+
+          echo ""
+          echo "📋 Eventos recentes:"
+          kubectl get events \
+            -n ${{ steps.target.outputs.namespace }} \
+            --field-selector involvedObject.name=${{ steps.target.outputs.service }} \
+            --sort-by='.lastTimestamp' | tail -10
+
+      - name: Notificar resultado no Discord
+        if: always()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          STATUS="${{ steps.restart.outputs.restart_status }}"
+          SERVICE="${{ steps.target.outputs.service }}"
+          TIMESTAMP="${{ steps.target.outputs.timestamp }}"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [ "$STATUS" = "success" ]; then
+            COLOR=3066993
+            EMOJI="✅"
+            TITLE="Self-Healing CONCLUÍDO"
+            DESC="O deployment **${SERVICE}** foi reiniciado com sucesso."
+          else
+            COLOR=15158332
+            EMOJI="❌"
+            TITLE="Self-Healing FALHOU"
+            DESC="Falha ao reiniciar **${SERVICE}**. Intervenção manual necessária."
+          fi
+
+          curl -s -X POST "$DISCORD_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"${EMOJI} ${TITLE}\",
+                \"description\": \"${DESC}\",
+                \"color\": ${COLOR},
+                \"fields\": [
+                  {\"name\": \"Serviço\", \"value\": \"\`${SERVICE}\`\", \"inline\": true},
+                  {\"name\": \"Namespace\", \"value\": \"\`feature-flags\`\", \"inline\": true},
+                  {\"name\": \"Cluster\", \"value\": \"\`eksc-challenge-fiap\`\", \"inline\": true},
+                  {\"name\": \"Timestamp\", \"value\": \"${TIMESTAMP}\", \"inline\": false},
+                  {\"name\": \"Execução\", \"value\": \"[Ver logs](${RUN_URL})\", \"inline\": false}
+                ],
+                \"footer\": {\"text\": \"ToggleMaster Self-Healing | GitHub Actions\"}
+              }]
+            }"

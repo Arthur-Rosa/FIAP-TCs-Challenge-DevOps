@@ -9,12 +9,39 @@ from dotenv import load_dotenv
 from functools import wraps
 import logging
 
+# OpenTelemetry
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
+
 # Configura o logging
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
 # Carrega .env para desenvolvimento local
-load_dotenv() 
+load_dotenv()
+
+def configure_otel(service_name: str):
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "otel-collector.monitoring.svc.cluster.local:4317")
+    try:
+        resource = Resource(attributes={SERVICE_NAME: service_name})
+        exporter = OTLPSpanExporter(endpoint=endpoint, insecure=True)
+        provider = TracerProvider(resource=resource)
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+        trace.set_tracer_provider(provider)
+        FlaskInstrumentor().instrument()
+        RequestsInstrumentor().instrument()
+        Psycopg2Instrumentor().instrument()
+        log.info(f"OTel: telemetria inicializada para '{service_name}' → {endpoint}")
+    except Exception as e:
+        log.warning(f"OTel: falha ao inicializar telemetria: {e} — continuando sem traces")
+
+configure_otel("flag-service")
 
 app = Flask(__name__)
 
