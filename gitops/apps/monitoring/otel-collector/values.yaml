@@ -32,7 +32,7 @@ ports:
     protocol: TCP
 
 # Credenciais Datadog via secret
-env:
+extraEnvs:
   - name: DD_API_KEY
     valueFrom:
       secretKeyRef:
