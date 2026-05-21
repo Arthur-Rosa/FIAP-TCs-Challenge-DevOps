@@ -104,9 +104,6 @@ config:
       metrics:
         histograms:
           mode: distributions
-      logs:
-        use_compression: true
-
     # Debug local (desabilitar em produção se necessário)
     debug:
       verbosity: basic
