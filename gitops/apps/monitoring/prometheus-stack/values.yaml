@@ -94,14 +94,7 @@ grafana:
               type: discord
               settings:
                 url: "${DISCORD_WEBHOOK_URL}"
-                message: |
-                  **[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:fire:{{ else }}:white_check_mark:{{ end }}] {{ .CommonLabels.alertname }}**
-                  {{ range .Alerts }}
-                  **Serviço:** {{ .Labels.service_name }}
-                  **Severidade:** {{ .Labels.severity }}
-                  **Resumo:** {{ .Annotations.summary }}
-                  **Detalhes:** {{ .Annotations.description }}
-                  {{ end }}
+                message: "**[ALERT] ToggleMaster Incident** — Verifique o Grafana para detalhes."
               disableResolveMessage: false
 
         - orgId: 1
