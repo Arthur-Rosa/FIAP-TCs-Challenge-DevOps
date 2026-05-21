@@ -72,7 +72,7 @@ config:
       send_batch_size: 1024
     # Adiciona atributos de resource ao resource detection
     resourcedetection:
-      detectors: [env, system, k8snode]
+      detectors: [env, system]
       timeout: 5s
       override: false
 
